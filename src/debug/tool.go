@@ -25,7 +25,7 @@ func openZip(file string) error {
 		//if f.FileInfo().IsDir(){
 		//	fmt.Println(f.Name)
 		//}
-		//fmt.Println(f.Name)
+		fmt.Println(f.Name)
 
 		switch {
 			case f.Name == "root/nodes/1/log.txt":
