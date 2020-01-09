@@ -2,44 +2,65 @@ package main
 
 import (
 	"archive/zip"
+	"bufio"
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
 	"log"
 	"os"
+	"regexp"
+	"strings"
+
 	//"path"
 	//"path/filepath"
 )
 
 func openZip(file string) error {
+	logFileRegExp := regexp.MustCompile(`([a-z]{5}/[a-z]{5}/\d+)/logs/.*.log`)
+	schemaFileRegExp := regexp.MustCompile(`([a-z]{5}\/[a-z]{6}\/[[:word:]]*)`)
+
 	// Open a zip archive for reading.
 	r, err := zip.OpenReader(file)
 	if err != nil {
 		log.Fatal(err)
 	}
 	defer r.Close()
-	//close this later at some point, when im done with the actual contents of the zip file
-	//defer r.Close()
+
+
+	//This is tracking whether we found one log file
+	//One log file is sufficient to return the version
+	var foundLog bool = false
 
 	for _, f := range r.File {
 		//if f.FileInfo().IsDir(){
 		//	fmt.Println(f.Name)
 		//}
-		fmt.Println(f.Name)
+		//fmt.Println(f.Name)
 
 		switch {
-			case f.Name == "root/nodes/1/log.txt":
-				if err := readFromFile(f); err != nil {
-					return err
-		  		}
-		  	case f.Name == "root/nodes/2/log.txt":
-				if err := readFromFile(f); err != nil {
+			//This case is to find one log file to print the version and cluster ID
+			case logFileRegExp.MatchString(f.Name):
+				if !foundLog {
+					if err := getVersion(f); err != nil {
+						return err
+					}
+					if err := getClusterID(f); err != nil {
+						return err
+					}
+					foundLog = true
+				}
+
+				if err := getStartFlags(f); err != nil {
 					return err
 				}
-			case f.Name == "root/b.json":
-				if err := readFromJson(f); err != nil {
-					return err
+			case schemaFileRegExp.MatchString(f.Name):
+				if !strings.HasPrefix(f.Name,"debug/schema/system") && !strings.Contains(f.Name,"@")   {
+					fmt.Printf("database: %s:\n", strings.Split(f.Name,"/")[2])
+					if err := getDDL(f); err != nil {
+						return err
+					}
 				}
+
 			default:
 
 		}
@@ -63,22 +84,6 @@ func readFromJson(f *zip.File) error {
 		return err
 	}
 
-	//fmt.Println(string(contents))
-
-	//type model struct {
-	//	KEY string `json:"key"`
-	//	KEY2 string `json:"key2"`
-	//}
-	//
-	//// json data
-	//var obj model
-	//
-	//err = json.Unmarshal(contents, &obj)
-	//if err != nil {
-	//	fmt.Println("error:", err)
-	//}
-	//fmt.Printf("%s: %s", obj.KEY)
-	//fmt.Printf("%s: %s", obj.KEY)
 
 	var m map[string]interface{}
 	err = json.Unmarshal(contents, &m)
@@ -97,23 +102,105 @@ func readFromJson(f *zip.File) error {
 	return nil
 }
 
-func readFromFile(f *zip.File ) error {
+func getDDL(f *zip.File) error {
+	//fmt.Println(f.Name)
 	rff, err := f.Open()
 
 	if err != nil {
 		return err
 	}
 
-	buf, err := ioutil.ReadAll(rff)
+	contents, err := ioutil.ReadAll(rff)
 
 	if err != nil {
 		return err
 	}
 
-	fmt.Printf("from file: %s\n",f.Name)
-	fmt.Println(string(buf))
 
+	var m map[string]interface{}
+	err = json.Unmarshal(contents, &m)
+
+	if err != nil {
+		fmt.Println(err)
+	}
+
+	fmt.Printf("%s\n", m["create_table_statement"])
+
+
+	return nil
+
+}
+
+
+func getClusterID(f *zip.File) error {
+	re := regexp.MustCompile(`clusterID: [0-9a-f]{8}\-[0-9a-f]{4}\-[0-9a-f]{4}\-[0-9a-f]{4}\-[0-9a-f]{12}`)
+	rff, err := f.Open()
+
+	if err != nil {
+		return err
+	}
 	defer rff.Close()
+
+	scanner := bufio.NewScanner(rff)
+	for scanner.Scan() {
+		if len(re.FindString(scanner.Text())) != 0 {
+			fmt.Printf("%s\n",re.FindString(scanner.Text()))
+			break
+		}
+	}
+
+	if err := scanner.Err(); err != nil {
+		log.Fatal(err)
+	}
+
+	return nil
+}
+
+func getStartFlags(f *zip.File) error {
+	re := regexp.MustCompile(`arguments: \[(.*?)]`)
+	rff, err := f.Open()
+
+	if err != nil {
+		return err
+	}
+	defer rff.Close()
+
+	scanner := bufio.NewScanner(rff)
+	for scanner.Scan() {
+		if len(re.FindString(scanner.Text())) != 0 {
+			fmt.Printf("node %s %s\n",strings.Split(f.Name,"/")[2],re.FindString(scanner.Text()))
+			break
+		}
+	}
+
+	if err := scanner.Err(); err != nil {
+		log.Fatal(err)
+	}
+
+	return nil
+}
+
+func getVersion(f *zip.File ) error {
+	re := regexp.MustCompile(`v[0-9]+.[0-9].[0-9]`)
+
+	rff, err := f.Open()
+
+	if err != nil {
+		return err
+	}
+	defer rff.Close()
+
+	scanner := bufio.NewScanner(rff)
+	for scanner.Scan() {
+		if len(re.FindString(scanner.Text())) != 0 {
+			fmt.Printf("CockroachDB %s\n",re.FindString(scanner.Text()))
+			break
+		}
+	}
+
+	if err := scanner.Err(); err != nil {
+		log.Fatal(err)
+	}
 
 return nil
 }
@@ -156,48 +243,6 @@ func main() {
 
 	fmt.Println(argsWithoutProg[0])
 	openZip(argsWithoutProg[0])
-	//unzipped := openZip(argsWithoutProg[0])
 
-	//dir, err := ioutil.TempDir("", "example")
-	//if err != nil {
-	//	log.Fatal(err)
-	//}
-
-	//defer os.RemoveAll(dir) // clean up
-
-
-	//fmt.Println(dir)
-
-	// Iterate through the files in the archive,
-	// printing some of their contents.
-	//for _, f := range unzipped.File {
-	//	//if (f.Name != ".DS_Store") {
-	//	//
-	//	//}
-	//	fmt.Printf("%s:\n", f.Name)
-	//	reader, err := f.Open()
-	//	if err != nil {
-	//		log.Fatal(err)
-	//	}
-	//	contents, err := ioutil.ReadAll(reader)
-	//	tmpfn := path.Join(dir, f.Name)
-	//	base := filepath.Dir(tmpfn)
-	//
-	//	if _, err := os.Stat(base); os.IsNotExist(err) {
-	//		fmt.Println("made it here")
-	//
-	//		if err := os.MkdirAll(base, 0777); err != nil {
-	//
-	//			log.Fatal(err)
-	//		}
-	//	}
-	//	if err := ioutil.WriteFile(tmpfn, contents, 0777); err != nil {
-	//		log.Fatal(err)
-	//	}
-	//}
-
-	//fmt.Println(dir)
-	//debugDir := path.Join(dir, "debug")
-	//getText(debugDir)
 
 }
