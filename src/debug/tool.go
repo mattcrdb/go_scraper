@@ -22,17 +22,21 @@ func openZip(file string) error {
 	//defer r.Close()
 
 	for _, f := range r.File {
+		//if f.FileInfo().IsDir(){
+		//	fmt.Println(f.Name)
+		//}
 		//fmt.Println(f.Name)
-		switch f.Name {
-			case "root/nodes/1/log.txt":
+
+		switch {
+			case f.Name == "root/nodes/1/log.txt":
 				if err := readFromFile(f); err != nil {
 					return err
 		  		}
-		  	case "root/nodes/2/log.txt":
+		  	case f.Name == "root/nodes/2/log.txt":
 				if err := readFromFile(f); err != nil {
 					return err
 				}
-			case "root/b.json":
+			case f.Name == "root/b.json":
 				if err := readFromJson(f); err != nil {
 					return err
 				}
@@ -83,6 +87,7 @@ func readFromJson(f *zip.File) error {
 		fmt.Println(err)
 	}
 
+	fmt.Printf("from file: %s\n",f.Name)
 	for k,v := range m {
 		fmt.Printf("%s : %s\n",k,v)
 	}
@@ -105,6 +110,7 @@ func readFromFile(f *zip.File ) error {
 		return err
 	}
 
+	fmt.Printf("from file: %s\n",f.Name)
 	fmt.Println(string(buf))
 
 	defer rff.Close()
