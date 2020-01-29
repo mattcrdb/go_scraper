@@ -11,10 +11,11 @@ import (
 	"regexp"
 	"strings"
 
-
 	//"path"
 	//"path/filepath"
 )
+
+
 
 func openZip(file string) error {
 	logFileRegExp := regexp.MustCompile(`([a-z]{5}/[a-z]{5}/\d+)/logs/.*.log`)
@@ -27,26 +28,38 @@ func openZip(file string) error {
 	}
 	defer r.Close()
 
-
 	//This is tracking whether we found one log file
 	//One log file is sufficient to return the version
 	var foundLog bool = false
 	//Map to keep track of visited node files so it doesn't print start flags for every log file
-	nodeVisited := make(map[string]bool)
+	var nodeVisited = make(map[string]bool)
+	//CRDB Version
+	var Version string = ""
+
+	//get version first
+	//then do the below
 
 	for _, f := range r.File {
-		//if f.FileInfo().IsDir(){
-		//	fmt.Println(f.Name)
-		//}
+		if logFileRegExp.MatchString(f.Name) {
+			Version,err = getVersion(f)
+			if err != nil {
+				return err
+			}
+			break
+		}
+
+	}
+
+	fmt.Printf("CockroachDB %s\n",Version)
+
+	for _, f := range r.File {
+
 		//fmt.Println(f.Name)
 
 		switch {
 			//This case is to find one log file to print the version and cluster ID
 			case logFileRegExp.MatchString(f.Name):
 				if !foundLog {
-					if err := getVersion(f); err != nil {
-						return err
-					}
 					if err := getClusterID(f); err != nil {
 						return err
 					}
@@ -66,22 +79,22 @@ func openZip(file string) error {
 
 			case schemaFileRegExp.MatchString(f.Name):
 				if !strings.HasPrefix(f.Name,"debug/schema/system") && !strings.Contains(f.Name,"@")   {
-					//fmt.Printf("database: %s:\n", strings.Split(f.Name,"/")[2])
-					//fmt.Printf("%s","blah")
-					//if err := getDDL(f); err != nil {
-					//	return err
-					//}
+					fmt.Printf("database: %s:\n", strings.Split(f.Name,"/")[2])
+					fmt.Printf("%s","blah")
+					if err := getDDL(f); err != nil {
+						return err
+					}
 				}
-			//case f.Name == "debug/crdb_internal.jobs.txt":
-			//	if err := getJobs(f); err != nil {
-			//		return err
-			//	}
-			//case f.Name == "debug/events.json":
-			//	if err := getEvents(f); err != nil {
-			//	return err
-			//	}
-			case f.Name == "debug/settings.json":
-				settings,err := getClusterSettingsAndCompare(f)
+			case f.Name == "debug/crdb_internal.jobs.txt":
+				if err := getJobs(f); err != nil {
+					return err
+				}
+			case f.Name == "debug/events.json":
+				if err := getEvents(f); err != nil {
+				return err
+				}
+			case f.Name == "debug/settings.json" || f.Name == "debug/settings":
+				settings,err := getClusterSettingsAndCompare(f,Version)
 				if err != nil {
 					return err
 				}
@@ -132,7 +145,7 @@ func searchForChangedClusterSettings(clusterSettings []string,f *zip.File) error
 	scanner := bufio.NewScanner(rff)
 	for scanner.Scan() {
 		if len(re.FindString(scanner.Text())) != 0 {
-			fmt.Printf("Found Cluster Setting Changed: %s\n\n",scanner.Text())
+			fmt.Printf("Found Cluster Setting Changed in n%s logs:\n%s\n\n",strings.Split(f.Name,"/")[2],scanner.Text())
 		}
 	}
 
@@ -157,7 +170,8 @@ type setting struct {
 	Description string `json:"description"`
 }
 
-func getClusterSettingsAndCompare (f *zip.File) ([]string,error) {
+func getClusterSettingsAndCompare (f *zip.File, version string) ([]string,error) {
+	fmt.Printf("version: %s\n",version)
 	rff, err := f.Open()
 
 	if err != nil {
@@ -170,7 +184,6 @@ func getClusterSettingsAndCompare (f *zip.File) ([]string,error) {
 		return nil,err
 	}
 
-
 	var sets localClusterSettings
 	err = json.Unmarshal(contents, &sets)
 
@@ -178,9 +191,42 @@ func getClusterSettingsAndCompare (f *zip.File) ([]string,error) {
 		fmt.Println(err)
 	}
 
-
 	var baseSettings localClusterSettings
-	err = json.Unmarshal([]byte(DefaultClusterSettings19_2_2), &baseSettings)
+	switch version {
+		case "v19.2.2":
+			err = json.Unmarshal([]byte(DefaultClusterSettings19_2_2), &baseSettings)
+		case  "v19.2.1":
+			err = json.Unmarshal([]byte(DefaultClusterSettings19_2_1), &baseSettings)
+		case  "v19.2.0":
+			err = json.Unmarshal([]byte(DefaultClusterSettings19_2_0), &baseSettings)
+		case  "v19.1.7":
+			err = json.Unmarshal([]byte(DefaultClusterSettings19_1_7), &baseSettings)
+		case  "v19.1.6":
+			err = json.Unmarshal([]byte(DefaultClusterSettings19_1_6), &baseSettings)
+		case  "v19.1.5":
+			err = json.Unmarshal([]byte(DefaultClusterSettings19_1_5), &baseSettings)
+		case  "v19.1.4":
+			err = json.Unmarshal([]byte(DefaultClusterSettings19_1_4), &baseSettings)
+		case  "v19.1.3":
+			err = json.Unmarshal([]byte(DefaultClusterSettings19_1_3), &baseSettings)
+		case  "v2.1.11":
+			err = json.Unmarshal([]byte(DefaultClusterSettings2_1_11), &baseSettings)
+		case  "v2.1.10":
+			err = json.Unmarshal([]byte(DefaultClusterSettings2_1_10), &baseSettings)
+		case  "v2.1.9":
+			err = json.Unmarshal([]byte(DefaultClusterSettings2_1_9), &baseSettings)
+		case  "v2.1.8":
+			err = json.Unmarshal([]byte(DefaultClusterSettings2_1_8), &baseSettings)
+		case  "v2.1.7":
+			err = json.Unmarshal([]byte(DefaultClusterSettings2_1_7), &baseSettings)
+		case  "v2.1.6":
+			err = json.Unmarshal([]byte(DefaultClusterSettings2_1_6), &baseSettings)
+		case  "v2.1.5":
+			err = json.Unmarshal([]byte(DefaultClusterSettings2_1_5), &baseSettings)
+
+	}
+
+
 
 	var setArr []string
 	for baseSetting, baseValue := range baseSettings.KeyValues {
@@ -190,13 +236,15 @@ func getClusterSettingsAndCompare (f *zip.File) ([]string,error) {
 			fmt.Printf("%s is not present in the settings.json!!!\n", baseSetting)
 			continue
 		}
+		//fmt.Println(userValue.Value)
 		if userValue.Value != baseValue.Value {
 			//fmt.Printf("setting: %s\n", baseSetting)
 			setArr = append(setArr, baseSetting)
-			fmt.Printf("%s is set to %s, default is %s\n", baseSetting, userValue.Value, baseValue.Value)
+			fmt.Printf("\n%s is set to %s, default is %s\n\n", baseSetting, userValue.Value, baseValue.Value)
 
 		}
 	}
+
 	//fmt.Println(f.Name)
 	//for i := range setArr {
 	//	fmt.Println(setArr[i])
@@ -423,21 +471,22 @@ func getStartFlags(f *zip.File) error {
 	return nil
 }
 
-func getVersion(f *zip.File ) error {
-	re := regexp.MustCompile(`v[0-9]+.[0-9].[0-9]`)
+func getVersion(f *zip.File ) (string,error) {
+	re := regexp.MustCompile(`v[0-9]+.[0-9].[0-9]+`)
 
 	rff, err := f.Open()
 
 	if err != nil {
-		return err
+		return "",err
 	}
 	defer rff.Close()
 
 	scanner := bufio.NewScanner(rff)
 	for scanner.Scan() {
 		if len(re.FindString(scanner.Text())) != 0 {
-			fmt.Printf("CockroachDB %s\n",re.FindString(scanner.Text()))
-			break
+			//fmt.Printf("CockroachDB %s\n",re.FindString(scanner.Text()))
+			return re.FindString(scanner.Text()), nil
+
 		}
 	}
 
@@ -445,7 +494,7 @@ func getVersion(f *zip.File ) error {
 		log.Fatal(err)
 	}
 
-return nil
+return "",nil
 }
 
 
@@ -453,7 +502,7 @@ return nil
 func main()  {
 	var argsWithoutProg = os.Args[1:]
 
-	fmt.Println(argsWithoutProg[0])
+	//fmt.Println(argsWithoutProg[0])
 	err := openZip(argsWithoutProg[0])
 	if err != nil {
 		log.Fatal(err)
